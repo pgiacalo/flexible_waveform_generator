@@ -1,5 +1,5 @@
 #include <driver/dac_oneshot.h>
-#include <driver/adc.h>
+#include <esp_adc/adc_oneshot.h>
 #include <math.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -8,7 +8,7 @@
 
 // DAC channel
 #define DAC_CHANNEL DAC_CHAN_0 // GPIO25 (DAC0)
-#define POTENTIOMETER_ADC_CHANNEL ADC1_CHANNEL_6 // GPIO34 (ADC1 channel 6)
+#define POTENTIOMETER_ADC_CHANNEL ADC_CHANNEL_6 // GPIO34 (ADC1 channel 6)
 
 // Constants
 #define NUM_SAMPLES_PER_CYCLE 100  // Number of samples per waveform period
@@ -16,7 +16,7 @@
 #define BUTTON_GPIO GPIO_NUM_0 // GPIO for the button
 
 // Parameters
-volatile float frequency = 100.0; // Frequency in Hz
+volatile float frequency = 330.0; // Frequency in Hz
 volatile float amplitude = 3.3;   // Amplitude in Volts (0 - 3.3V)
 volatile float phase = 0.0;       // Phase in degrees (0 - 360)
 volatile int waveform = 0;        // Waveform type: 0=Sine, 1=Square, 2=Triangle
@@ -31,6 +31,9 @@ int triangleWave[NUM_SAMPLES_PER_CYCLE];
 
 // DAC handle
 dac_oneshot_handle_t dac_handle;
+
+// ADC handle
+adc_oneshot_unit_handle_t adc_handle;
 
 // Function prototypes
 void calculateWaveforms();
@@ -166,15 +169,23 @@ void setupButton() {
 }
 
 void setupADC() {
-    // Configure ADC1 channel 6 (GPIO34)
-    adc1_config_width(ADC_WIDTH_BIT_12); // 12-bit ADC resolution
-    adc1_config_channel_atten(POTENTIOMETER_ADC_CHANNEL, ADC_ATTEN_DB_11); // 0-3.6V range
+    adc_oneshot_unit_init_cfg_t unit_cfg = {
+        .unit_id = ADC_UNIT_1
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_handle));
+
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, POTENTIOMETER_ADC_CHANNEL, &config));
 }
 
 void readPotentiometerTask(void* pvParameters) {
+    int adc_value = 0;
     while (1) {
         // Read the ADC value (0-4095)
-        int adc_value = adc1_get_raw(POTENTIOMETER_ADC_CHANNEL);
+        ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, POTENTIOMETER_ADC_CHANNEL, &adc_value));
         // Scale the value to 0-3.3V
         amplitude = (float)adc_value / 4095.0 * 3.3;
 
