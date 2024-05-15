@@ -1,4 +1,5 @@
 #include <driver/dac_oneshot.h>
+#include <driver/adc.h>
 #include <math.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -7,6 +8,7 @@
 
 // DAC channel
 #define DAC_CHANNEL DAC_CHAN_0 // GPIO25 (DAC0)
+#define POTENTIOMETER_ADC_CHANNEL ADC1_CHANNEL_6 // GPIO34 (ADC1 channel 6)
 
 // Constants
 #define NUM_SAMPLES_PER_CYCLE 100  // Number of samples per waveform period
@@ -39,6 +41,8 @@ void setupTimer();
 void onTimer(void* arg);
 void button_isr_handler(void* arg);
 void setupButton();
+void setupADC();
+void readPotentiometerTask(void* pvParameters);
 
 void app_main() {
     // Calculate the sample rate
@@ -58,6 +62,12 @@ void app_main() {
 
     // Setup button for waveform switching
     setupButton();
+
+    // Setup ADC for potentiometer
+    setupADC();
+
+    // Create a task to read the potentiometer value
+    xTaskCreate(readPotentiometerTask, "read_potentiometer_task", 2048, NULL, 5, NULL);
 }
 
 void calculateWaveforms() {
@@ -153,4 +163,25 @@ void setupButton() {
     // Install the ISR handler for the button
     gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
     gpio_isr_handler_add(BUTTON_GPIO, button_isr_handler, NULL);
+}
+
+void setupADC() {
+    // Configure ADC1 channel 6 (GPIO34)
+    adc1_config_width(ADC_WIDTH_BIT_12); // 12-bit ADC resolution
+    adc1_config_channel_atten(POTENTIOMETER_ADC_CHANNEL, ADC_ATTEN_DB_11); // 0-3.6V range
+}
+
+void readPotentiometerTask(void* pvParameters) {
+    while (1) {
+        // Read the ADC value (0-4095)
+        int adc_value = adc1_get_raw(POTENTIOMETER_ADC_CHANNEL);
+        // Scale the value to 0-3.3V
+        amplitude = (float)adc_value / 4095.0 * 3.3;
+
+        // Recalculate waveform values with the new amplitude
+        calculateWaveforms();
+
+        // Delay before the next read
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
